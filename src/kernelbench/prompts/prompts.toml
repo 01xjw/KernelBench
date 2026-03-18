@@ -147,7 +147,6 @@ other placeholder supported in the shared context.
 
 # -------------------------------------------------------------------------
 # Hardware Templates: GPU-specific information blocks
-# Supports both NVIDIA and AMD GPUs via {gpu_vendor_display} placeholder
 # -------------------------------------------------------------------------
 [templates.hardware]
 hardware_header = """
@@ -170,11 +169,6 @@ hardware_best_practices = """
 Here are some best practices for writing kernels on GPU:
 
 {gpu_best_practices_bullets}
-"""
-
-# AMD-specific optimization guidance (only included for AMD GPUs)
-amd_optimization_guidance = """
-{amd_optimization_guidance}
 """
 
 # -------------------------------------------------------------------------

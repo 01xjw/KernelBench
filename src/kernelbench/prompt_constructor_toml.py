@@ -24,15 +24,6 @@ HARDWARE_COMPONENT_KEYS = [
     "hardware_best_practices",
 ]
 
-# AMD-specific hardware component keys
-AMD_HARDWARE_COMPONENT_KEYS = [
-    "hardware_header",
-    "hardware_specs",
-    "hardware_definitions",
-    "hardware_best_practices",
-    "amd_optimization_guidance",
-]
-
 @dataclass
 class PromptConfig:
     """
@@ -97,95 +88,44 @@ class PromptConfig:
         
         return "\n".join(text_parts).strip() + "\n"
 
-def _gpu_context_from_gpu_specs(py_path: str, gpu_name: str, vendor: str = "nvidia") -> Dict[str, str]:
+def _gpu_context_from_gpu_specs(py_path: str, gpu_name: str) -> Dict[str, str]:
     """
     Load GPU_* dicts from the GPU specs file (no exec of raw strings; use runpy).
-    
-    Supports both NVIDIA and AMD GPUs.
-    
     Expected globals:
-      For NVIDIA:
-        - GPU_SPEC_INFO: dict[str, dict]
-        - GPU_DEFINITIONS: dict[str, str]
-        - GPU_BEST_PRACTICES: list[str]  OR {"list": [...]} for compatibility
-      For AMD:
-        - AMD_GPU_SPEC_INFO: dict[str, dict]
-        - AMD_GPU_DEFINITIONS: dict[str, str]
-        - AMD_GPU_BEST_PRACTICES: list[str]
-    Args:
-        py_path: Path to the gpu_specs.py file
-        gpu_name: GPU name to look up (e.g., "L40S", "MI355X", "R9700")
-        vendor: GPU vendor ("nvidia" or "amd")
-    
-    Returns:
-        Dict with context variables for prompt rendering
+      - GPU_SPEC_INFO: dict[str, dict]
+      - GPU_DEFINITIONS: dict[str, str]
+      - GPU_BEST_PRACTICES: list[str]  OR {"list": [...]} for compatibility
     """
     mod = runpy.run_path(py_path)
-    
-    is_amd = vendor.lower() == "amd"
-    
-    if is_amd:
-        # Load AMD-specific specs
-        spec_info = mod.get("AMD_GPU_SPEC_INFO", {})
-        definitions = mod.get("AMD_GPU_DEFINITIONS", {})
-        best = mod.get("AMD_GPU_BEST_PRACTICES", [])
-        
-        # AMD-specific prompts-INPROGRESS
-
-        
-    else:
-        # Load NVIDIA specs
-        spec_info = mod.get("GPU_SPEC_INFO", {})
-        definitions = mod.get("GPU_DEFINITIONS", {})
-        best = mod.get("GPU_BEST_PRACTICES", [])
+    spec_info = mod.get("GPU_SPEC_INFO", {})
+    definitions = mod.get("GPU_DEFINITIONS", {})
+    best = mod.get("GPU_BEST_PRACTICES", [])
 
     if not spec_info or not definitions or best is None:
-        vendor_name = "AMD" if is_amd else "NVIDIA"
-        raise ValueError(f"{vendor_name} GPU_SPEC_INFO / GPU_DEFINITIONS / GPU_BEST_PRACTICES missing in gpu specs .py")
+        raise ValueError("GPU_SPEC_INFO / GPU_DEFINITIONS / GPU_BEST_PRACTICES missing in gpu specs .py")
 
     if isinstance(best, dict) and "list" in best:
         best = best["list"]
 
     if gpu_name not in spec_info:
-        # For AMD, try to find a matching key by partial match
-        if is_amd:
-            matched_key = None
-            for key in spec_info.keys():
-                if key.lower() in gpu_name.lower() or gpu_name.lower() in key.lower():
-                    matched_key = key
-                    break
-            if matched_key is None and spec_info:
-                matched_key = next(iter(spec_info))  # Use first entry as fallback
-            if matched_key:
-                gpu_name = matched_key
-            else:
-                raise KeyError(f"GPU name {gpu_name} not found in AMD_GPU_SPEC_INFO")
-        else:
-            raise KeyError(f"GPU name {gpu_name} not found in GPU_SPEC_INFO")
+        raise KeyError(f"GPU name {gpu_name} not found in GPU_SPEC_INFO")
 
     curr = spec_info[gpu_name]
     gpu_architecture = curr.get("GPU Architecture", "Unknown")
-    
-    if is_amd:
-        specs_bullets = "\n".join([f"- {k}: {v}" for k, v in curr.items()])
-        vendor_display = "AMD"
-    else:
-        specs_bullets = "\n".join([f"- We have {v} of {k}." for k, v in curr.items() if k != "GPU Architecture"])
-        vendor_display = "NVIDIA"
-    
+    arch_lower = gpu_architecture.lower()
+    gpu_vendor_display = "AMD" if any(k in arch_lower for k in ("gfx", "rdna", "cdna")) else "NVIDIA"
+    specs_bullets = "\n".join([f"- We have {v} of {k}." for k, v in curr.items() if k != "GPU Architecture"])
     defs_bullets = "\n".join([f"- {k}: {v}" for k, v in definitions.items()])
     best_bullets = "\n".join([f"- {x}" for x in (best or [])])
 
-    context = {
+    return {
         "gpu_name": gpu_name,
         "gpu_architecture": gpu_architecture,
+        "gpu_vendor_display": gpu_vendor_display,
         "gpu_specs_bullets": specs_bullets,
         "gpu_definitions_bullets": defs_bullets,
         "gpu_best_practices_bullets": best_bullets,
-        "gpu_vendor": vendor.lower(),
-        "gpu_vendor_display": vendor_display,
-    } 
-    return context
+    }
 
 def render_prompt_by_option(
     *,
@@ -198,12 +138,9 @@ def render_prompt_by_option(
     precision: Optional[str] = None,
     include_hardware: bool = False,
     components_override: Optional[List[str]] = None,
-    vendor: str = "nvidia",
 ) -> str:
     """
     Render a prompt using backends.X and options.Y structure from TOML.
-    
-    Supports both NVIDIA and AMD GPUs.
     
     Args:
         prompts_toml: Path to the prompts.toml file
@@ -220,14 +157,11 @@ def render_prompt_by_option(
         components_override: When provided, users can arrange prompt components from the toml
                              file in any order they want.
                              Components must exist under templates.common or be hardware_* entries.
-        vendor: GPU vendor ("nvidia" or "amd") - affects hardware info and prompt content
     
     Returns:
         The rendered prompt string
     """
     cfg = PromptConfig.from_toml(prompts_toml)
-    
-    is_amd = vendor.lower() == "amd"
     
     # Get backend-specific content
     try:
@@ -241,19 +175,15 @@ def render_prompt_by_option(
     except KeyError:
         raise KeyError(f"Unknown option: {option}")
 
-    # Determine which hardware component keys to use
-    hardware_keys = AMD_HARDWARE_COMPONENT_KEYS if is_amd else HARDWARE_COMPONENT_KEYS
-    
     component_sequence = list(components_override or option_data["components"])
     if include_hardware:
         if components_override is None:
             insert_idx = component_sequence.index("arch_block") if "arch_block" in component_sequence else len(component_sequence)
-            component_sequence[insert_idx:insert_idx] = hardware_keys
+            component_sequence[insert_idx:insert_idx] = HARDWARE_COMPONENT_KEYS
         else:
             # Custom sequences must explicitly have hardware blocks present in their prompt if they 
             # have set they are including hardware info. 
-            all_hardware_keys = set(HARDWARE_COMPONENT_KEYS) | set(AMD_HARDWARE_COMPONENT_KEYS)
-            if not any(component in all_hardware_keys for component in component_sequence):
+            if not any(component in HARDWARE_COMPONENT_KEYS for component in component_sequence):
                 raise ValueError(
                     "components_override must contain at least one hardware_* entry when include_hardware=True"
                 )
@@ -361,7 +291,7 @@ def render_prompt_by_option(
             raise ValueError(
                 f"Hardware info requested for option '{option}'; provide gpu_specs_py and gpu_name"
             )
-        context = {**context, **_gpu_context_from_gpu_specs(resolve_path(gpu_specs_py), gpu_name, vendor=vendor)}
+        context = {**context, **_gpu_context_from_gpu_specs(resolve_path(gpu_specs_py), gpu_name)}
     
     # Builds the prompt from the components in the toml file. 
     prompt_parts = []
@@ -399,12 +329,9 @@ def get_prompt_for_backend(
     precision: Optional[str] = None,
     include_hardware: bool = False,
     gpu_name: Optional[str] = None,
-    vendor: str = "nvidia",
 ) -> str:
     """
     Generate a prompt for a specific backend and option.
-    
-    Supports both NVIDIA and AMD GPUs.
     
     Args:
         ref_arch_src: The reference architecture source code
@@ -412,8 +339,7 @@ def get_prompt_for_backend(
         option: The prompt option (zero_shot, one_shot, few_shot)
         precision: Optional precision (fp32, fp16, bf16) - defaults to fp32 if not provided
         include_hardware: When True, append hardware guidance blocks (requires gpu_name)
-        gpu_name: GPU identifier used when include_hardware is True (e.g., "A100", "R9700", "W7900D")
-        vendor: GPU vendor ("nvidia" or "amd")
+        gpu_name: GPU identifier used when include_hardware is True (e.g., "A100")
     """
     return render_prompt_by_option(
         prompts_toml=PROMPTS_TOML,
@@ -424,7 +350,6 @@ def get_prompt_for_backend(
         include_hardware=include_hardware,
         gpu_specs_py=GPU_SPECS_PY if include_hardware else None,
         gpu_name=gpu_name,
-        vendor=vendor,
     )
 
 
@@ -438,25 +363,11 @@ def get_custom_prompt(
     include_hardware: bool = False,
     gpu_name: Optional[str] = None,
     prompts_toml: str = PROMPTS_TOML,
-    vendor: str = "nvidia",
 ) -> str:
     """
     Render a prompt defined under [custom_prompts.<custom_key>] in prompts.toml.
     Must still provide backend/option/precision settings just like
-    get_prompt_for_backend.
-    
-    Supports both NVIDIA and AMD GPUs.
-    
-    Args:
-        custom_key: The custom prompt key in prompts.toml
-        ref_arch_src: The reference architecture source code
-        backend: The kernel backend (triton, cuda, cute, tilelang)
-        option: The prompt option (zero_shot, one_shot, few_shot)
-        precision: Optional precision (fp32, fp16, bf16)
-        include_hardware: When True, include hardware guidance
-        gpu_name: GPU identifier (e.g., "A100", "R9700", "W7900D")
-        prompts_toml: Path to prompts.toml file
-        vendor: GPU vendor ("nvidia" or "amd")
+    get_prompt_for_backend. 
     """
     if not ref_arch_src:
         raise ValueError(f"Custom prompt '{custom_key}' requires ref_arch_src.")
@@ -478,7 +389,6 @@ def get_custom_prompt(
         gpu_specs_py=GPU_SPECS_PY if include_hardware else None,
         gpu_name=gpu_name,
         components_override=components_override,
-        vendor=vendor,
     )
 
 __all__ = [
@@ -497,7 +407,7 @@ def log_prompt(prompt: str, dir_path: str, file_name: str):
 
 def test_prompt():
     """
-    Demonstrate baseline, few-shot, DSL, hardware-aware, AMD, and custom prompt
+    Demonstrate baseline, few-shot, DSL, hardware-aware, and custom prompt
     generation. Customize the reference architecture or custom_prompt_key
     if you want to try different inputs.
     """
@@ -506,7 +416,6 @@ def test_prompt():
 
     print("Testing prompt construction...")
     scratch_dir = os.path.join(REPO_TOP_PATH, "scratch")
-    
     # baseline prompt
     baseline_prompt = get_prompt_for_backend(
         ref_arch_src=ref_arch_src,
@@ -535,7 +444,7 @@ def test_prompt():
     )
     log_prompt(dsl_prompt, os.path.join(scratch_dir), "dsl_prompt.txt")
 
-    # NVIDIA hardware prompt
+    # hardware prompt
     hardware_prompt = get_prompt_for_backend(
         ref_arch_src=ref_arch_src,
         backend="cute",
@@ -543,22 +452,8 @@ def test_prompt():
         precision="fp32",
         include_hardware=True,
         gpu_name="L40S",
-        vendor="nvidia",
     )
     log_prompt(hardware_prompt, os.path.join(scratch_dir), "hardware_prompt.txt")
-
-    
-    # AMD hardware prompt (RDNA4 - R9700)
-    amd_rdna4_prompt = get_prompt_for_backend(
-        ref_arch_src=ref_arch_src,
-        backend="triton",
-        option="one_shot",
-        precision="fp32",
-        include_hardware=True,
-        gpu_name="R9700",
-        vendor="amd",
-    )
-
 
     # custom prompt defined in prompts.toml
     custom_prompt = get_custom_prompt(
@@ -571,7 +466,6 @@ def test_prompt():
         precision="fp32",
         include_hardware=True,
         gpu_name="L40S",
-        vendor="nvidia",
     )
     log_prompt(custom_prompt, os.path.join(scratch_dir), "custom_prompt.txt")
     

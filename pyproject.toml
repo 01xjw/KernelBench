@@ -9,15 +9,9 @@ name = "kernelbench"
 version = "0.2.0.dev0"
 requires-python = "==3.10.*"
 dependencies = [
-    # Frameworks
-    "torch>=2.9.0",
-
-    "pytorch-triton-rocm>=3.4.0",
     "transformers",
     "datasets>=2.19.0",
     "modal",
-    "ruff",
-
     # helper
     "tqdm",
     "packaging",
@@ -26,27 +20,34 @@ dependencies = [
     "ninja",
     "tomli",
     "tabulate",
-
     # Numerics
     "einops",
     "python-dotenv",
     "numpy",
-
     # LLM providers
     "openai",
     "litellm[proxy]",
+    "torch>=2.10.0",
+    "pytest>=9.0.2",
 ]
 
 [project.optional-dependencies]
 gpu = [
-    # GPU-specific dependencies (ROCm / AMD Radeon)
+    # GPU-specific dependencies (requires CUDA)
     "triton",
+    "nvidia-cutlass-dsl",
     "tilelang",
+    "cupy-cuda12x",
+    "nsight-python",
 ]
 dev = [
     "pytest",
     "ruff",
 ]
+
+[[tool.uv.index]]
+name = "pytorch"
+url = "https://download.pytorch.org/whl/rocm7.1"
 
 
 [tool.setuptools.packages.find]
@@ -57,11 +58,4 @@ include = ["kernelbench*"]
 kernelbench = ["prompts/**/*"]
 
 [tool.uv.sources]
-torch = [{ index = "pytorch-rocm" }]
-torchvision = [{ index = "pytorch-rocm" }]
-pytorch-triton-rocm = [{ index = "pytorch-rocm" }]
-
-[[tool.uv.index]]
-name = "pytorch-rocm"
-url = "https://download.pytorch.org/whl/rocm6.4"
-explicit = true
+torch = { index = "pytorch" }

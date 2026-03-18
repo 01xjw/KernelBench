@@ -124,7 +124,7 @@ uv run python scripts/generate_and_eval_single_sample.py dataset_src=huggingface
 **What you might need to modify**
 * **`gpu_arch`** - Depending on your GPU, you might need to adjust the `gpu_arch` argument to reflect your hardware.
 * **`precision`** - You can specify the precision of tensor by `precision=fp32`. Currently all of our reported results are `fp32` but we added support for `fp16` & `bf16`.
-*  **`backend`** - We are also supporting other GPU programming languages beyond `cuda`. For example, simply specify `backend=triton` or `backend=hip`. For now we support NVIDIA GPUs with programming frameworks and DSLs: `cuda`, `triton`, `cute`, `tilelang`, `thunderkittens`.
+*  **`backend`** - We are also supporting other GPU programming languages beyond `cuda`. For example, simply specify `backend=triton` or `backend=hip`. For now we support NVIDIA GPUs with programming frameworks and DSLs: `cuda`, `triton`, `cute`, `tilelang`, `thunderkittens`. 
 
 Note for AMD GPUs: Use `hip` backend, `gpu_arch` currently supported: `gfx942`, `gfx950`.
 
