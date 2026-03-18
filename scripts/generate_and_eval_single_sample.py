@@ -19,7 +19,7 @@ Generate and evaluate a single sample
 Easiest way to get started, to test a single problem for experimentation or debugging
 
 Example usage:
-python3 scripts/generate_and_eval_single_sample.py dataset_src=huggingface level=1 problem_id=1 eval_mode=local server_type=google model_name=gemini/gemini-2.5-flash max_tokens=8192 temperature=0.0
+uv run python scripts/generate_and_eval_single_sample.py dataset_src=huggingface level=1 problem_id=1 eval_mode=local server_type=google model_name=gemini/gemini-2.5-flash max_tokens=8192 temperature=0.0
 """
 
 REPO_TOP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -124,6 +124,8 @@ def main(config: EvalConfig):
     )
 
     if config.gpu_arch:
+        if (type(config.gpu_arch) is not list): # normalization to list
+            config.gpu_arch = [config.gpu_arch]
         set_gpu_arch(config.gpu_arch)  # otherwise build for all architectures
 
     if config.log:
@@ -174,7 +176,7 @@ def main(config: EvalConfig):
         include_hardware = include_hardware.lower() in ["true", "1", "yes"]
     config.include_hardware_info = include_hardware
 
-    supported_backends = {"cuda", "triton", "tilelang", "cute", "thunderkittens"}
+    supported_backends = {"cuda", "hip", "triton", "tilelang", "cute", "thunderkittens"}
     backend = config.backend.lower()
     if backend not in supported_backends:
         raise ValueError(

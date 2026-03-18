@@ -574,7 +574,18 @@ def eval_kernel_against_ref(
     gpu_vendor = get_gpu_vendor()
     gpu_info = get_gpu_info(device if isinstance(device, int) else None)
     
-    if backend.lower() == "tilelang":
+    # Backend-GPU vendor validation
+    from .utils import get_gpu_vendor
+    vendor = get_gpu_vendor(device)
+    backend_lower = backend.lower()
+    # HIP is AMD-only
+    if backend_lower == "hip" and vendor != "amd":
+        raise ValueError(f"HIP backend requires AMD GPU, got {vendor}")
+    # cuda/cute/thunderkittens are NVIDIA-only (triton/tilelang work on both)
+    if backend_lower in ["cuda", "cute", "thunderkittens"] and vendor == "amd":
+        raise ValueError(f"{backend} backend requires NVIDIA GPU, got AMD")
+    
+    if backend_lower == "tilelang":
         assert precision == torch.float16 or precision == torch.bfloat16, "TileLang only supports fp16 or bfloat16"
     
     torch.set_printoptions(
@@ -620,10 +631,8 @@ def eval_kernel_against_ref(
             raise ValueError(
                 f"device must be an int or torch.device, got {type(device)}"
             )
-        
-        # Set device visibility
-        # For ROCm, use HIP_VISIBLE_DEVICES; for CUDA, use CUDA_VISIBLE_DEVICES
-        if gpu_vendor == "amd":
+        # NVIDIA uses CUDA_VISIBLE_DEVICES, AMD uses HIP_VISIBLE_DEVICES
+        if vendor == "amd":
             os.environ["HIP_VISIBLE_DEVICES"] = str(device_num)
             os.environ["ROCR_VISIBLE_DEVICES"] = str(device_num)
         else:
